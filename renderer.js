@@ -47,29 +47,20 @@ const Renderer = (function () {
     ctx.fill();
   }
 
-  // A circle filled with a radial gradient (light from upper-left) instead of a flat color.
-  function drawShadedCircle(ctx, x, y, radius, color) {
-    const grad = ctx.createRadialGradient(
-      x - radius * 0.35, y - radius * 0.35, radius * 0.1,
-      x, y, radius
-    );
-    grad.addColorStop(0, lightenColor(color, 0.4));
-    grad.addColorStop(1, color);
-    ctx.beginPath();
-    ctx.arc(x, y, radius, 0, Math.PI * 2);
-    ctx.fillStyle = grad;
-    ctx.fill();
-  }
-
-  // A square (used for the forge) filled with a diagonal gradient instead of a flat color.
-  function drawShadedRect(ctx, x, y, halfSize, color) {
-    const grad = ctx.createLinearGradient(x - halfSize, y - halfSize, x + halfSize, y + halfSize);
-    grad.addColorStop(0, lightenColor(color, 0.4));
-    grad.addColorStop(1, color);
-    ctx.beginPath();
-    ctx.rect(x - halfSize, y - halfSize, halfSize * 2, halfSize * 2);
-    ctx.fillStyle = grad;
-    ctx.fill();
+  // Draws a baked pixel-art sprite (see sprites.js) centered at (x, y),
+  // scaled to `radius`. `tint` optionally blends a flat color over just the
+  // sprite's own drawn pixels (via 'source-atop'), used for hit-flash.
+  function drawSprite(ctx, sprite, x, y, radius, tint) {
+    const size = radius * 2;
+    ctx.drawImage(sprite, x - radius, y - radius, size, size);
+    if (tint && tint.amount > 0) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'source-atop';
+      ctx.globalAlpha = tint.amount;
+      ctx.fillStyle = tint.color;
+      ctx.fillRect(x - radius, y - radius, size, size);
+      ctx.restore();
+    }
   }
 
   function drawBackground(ctx, canvas, worldCenter) {
@@ -89,10 +80,8 @@ const Renderer = (function () {
 
   function drawTownCore(ctx, core, gold) {
     drawGroundShadow(ctx, core.x, core.y, core.radius);
-    const coreColor = core.hitFlashTimer > 0
-      ? blendColor('#3498db', '#ffffff', core.hitFlashTimer / 0.15)
-      : '#3498db';
-    drawShadedCircle(ctx, core.x, core.y, core.radius, coreColor);
+    const tint = { color: '#ffffff', amount: core.hitFlashTimer > 0 ? core.hitFlashTimer / 0.15 : 0 };
+    drawSprite(ctx, Sprites.core, core.x, core.y, core.radius, tint);
     const ok = core.canRepair && affordable(gold, CONFIG.CORE.REPAIR_COST);
     if (core.canRepair) drawRing(ctx, core.x, core.y, core.radius, ok);
     const label = core.canRepair
@@ -103,7 +92,7 @@ const Renderer = (function () {
 
   function drawForge(ctx, forge, gold) {
     drawGroundShadow(ctx, forge.x, forge.y, forge.radius);
-    drawShadedRect(ctx, forge.x, forge.y, forge.radius, '#9b59b6');
+    drawSprite(ctx, Sprites.forge, forge.x, forge.y, forge.radius);
     const cost = forge.cost;
     const ok = affordable(gold, cost);
     if (cost !== null) drawRing(ctx, forge.x, forge.y, forge.radius, ok);
@@ -116,12 +105,8 @@ const Renderer = (function () {
   function drawTowerSpots(ctx, towerSpots, gold) {
     for (const spot of towerSpots) {
       drawGroundShadow(ctx, spot.x, spot.y, spot.radius);
-      drawShadedCircle(ctx, spot.x, spot.y, spot.radius, spot.isBuilt ? '#f1c40f' : '#555');
-      ctx.beginPath();
-      ctx.arc(spot.x, spot.y, spot.radius, 0, Math.PI * 2);
-      ctx.strokeStyle = '#333';
-      ctx.lineWidth = 2;
-      ctx.stroke();
+      const sprite = spot.isBuilt ? Sprites.tower[spot.level - 1] : Sprites.emptySpot;
+      drawSprite(ctx, sprite, spot.x, spot.y, spot.radius);
 
       const cost = spot.cost;
       const ok = affordable(gold, cost);
@@ -136,17 +121,16 @@ const Renderer = (function () {
 
   function drawGoldPickups(ctx, goldPickups) {
     for (const g of goldPickups) {
-      drawShadedCircle(ctx, g.x, g.y, g.radius, '#f39c12');
+      drawSprite(ctx, Sprites.gold, g.x, g.y, g.radius);
     }
   }
 
   function drawEnemies(ctx, enemies) {
     for (const e of enemies) {
       drawGroundShadow(ctx, e.x, e.y, e.radius);
-      const fillColor = e.hitFlashTimer > 0
-        ? blendColor(e.color, '#ffffff', e.hitFlashTimer / 0.08)
-        : e.color;
-      drawShadedCircle(ctx, e.x, e.y, e.radius, fillColor);
+      const sprite = e.type === 'brute' ? Sprites.brute : Sprites.runner;
+      const tint = { color: '#ffffff', amount: e.hitFlashTimer > 0 ? e.hitFlashTimer / 0.08 : 0 };
+      drawSprite(ctx, sprite, e.x, e.y, e.radius, tint);
       // hp bar
       const barW = e.radius * 2;
       ctx.fillStyle = '#000';
@@ -156,9 +140,16 @@ const Renderer = (function () {
     }
   }
 
+  // The bolt sprite points "up" at rest, so it's rotated to match each
+  // projectile's actual travel direction.
   function drawProjectiles(ctx, projectiles) {
     for (const p of projectiles) {
-      drawShadedCircle(ctx, p.x, p.y, p.radius, '#ecf0f1');
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(Math.atan2(p.vy, p.vx) + Math.PI / 2);
+      const size = p.radius * 2;
+      ctx.drawImage(Sprites.bolt, -p.radius, -p.radius, size, size);
+      ctx.restore();
     }
   }
 
@@ -181,12 +172,13 @@ const Renderer = (function () {
     ctx.stroke();
 
     drawGroundShadow(ctx, player.x, player.y, player.radius);
-    drawShadedCircle(ctx, player.x, player.y, player.radius, '#2ecc71');
+    drawSprite(ctx, Sprites.player, player.x, player.y, player.radius);
   }
 
   // `world` = { worldCenter, townCore, forge, towerSpots, goldPickups,
   //             enemies, projectiles, particles, player, mouse, gold }
   function render(ctx, canvas, world) {
+    ctx.imageSmoothingEnabled = false; // keep baked pixel sprites crisp when scaled
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     drawBackground(ctx, canvas, world.worldCenter);
     drawTownCore(ctx, world.townCore, world.gold);

@@ -55,8 +55,7 @@ class Enemy {
   update(dt, core) {
     if (this.hitFlashTimer > 0) this.hitFlashTimer = Math.max(0, this.hitFlashTimer - dt);
 
-    const rangeSum = this.radius + core.radius + 4;
-    if (dist2(this.x, this.y, core.x, core.y) > rangeSum * rangeSum) {
+    if (!circlesOverlap(this.x, this.y, this.radius, core.x, core.y, core.radius + 4)) {
       const dir = normalize(core.x - this.x, core.y - this.y);
       this.x += dir.x * this.speed * dt;
       this.y += dir.y * this.speed * dt;
@@ -73,7 +72,7 @@ class Enemy {
 
 // --- Projectile ---------------------------------------------------------------
 class Projectile {
-  constructor(x, y, dx, dy, speed, damage, ttl, radius, owner) {
+  constructor(x, y, dx, dy, speed, damage, ttl, radius) {
     const dir = normalize(dx, dy);
     this.x = x;
     this.y = y;
@@ -82,7 +81,6 @@ class Projectile {
     this.damage = damage;
     this.radius = radius;
     this.ttl = ttl;
-    this.owner = owner; // 'player' | 'tower' — unused for now, kept for clarity
   }
 
   update(dt) {
@@ -164,7 +162,7 @@ class TowerSpot {
       projectiles.push(new Projectile(
         this.x, this.y,
         nearest.x - this.x, nearest.y - this.y,
-        CONFIG.TOWER.PROJECTILE_SPEED, this.damage, 1.5, 4, 'tower'
+        CONFIG.TOWER.PROJECTILE_SPEED, this.damage, 1.5, 4
       ));
       this.timeSinceLastShot = 0;
     }
@@ -229,7 +227,7 @@ class Forge {
 // --- Particle ---------------------------------------------------------------
 // Generic lightweight VFX particle: a small colored dot that flies outward,
 // decelerates, and fades over its lifetime. Used for death bursts, muzzle
-// flashes, upgrade sparkles, etc. — spawn helpers live in game.js.
+// flashes, upgrade sparkles, etc.
 class Particle {
   constructor(x, y, vx, vy, color, radius, life) {
     this.x = x;
@@ -252,5 +250,19 @@ class Particle {
 
   get alpha() {
     return Math.max(0, this.life / this.maxLife);
+  }
+}
+
+// Spawns `count` Particles flying outward from (x, y) in random directions,
+// pushed onto the given `particles` array. Used for death bursts, etc.
+function spawnParticleBurst(particles, x, y, color, count) {
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 60 + Math.random() * 120;
+    particles.push(new Particle(
+      x, y,
+      Math.cos(angle) * speed, Math.sin(angle) * speed,
+      color, 2 + Math.random() * 2, 0.35 + Math.random() * 0.2
+    ));
   }
 }

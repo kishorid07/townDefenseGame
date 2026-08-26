@@ -22,29 +22,16 @@
   let gameState, player, townCore, forge, towerSpots, enemies, projectiles, goldPickups, particles;
   let spawnTimer;
 
-  // --- VFX helpers ---------------------------------------------------------------
-  function spawnBurst(x, y, color, count) {
-    for (let i = 0; i < count; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const speed = 60 + Math.random() * 120;
-      particles.push(new Particle(
-        x, y,
-        Math.cos(angle) * speed, Math.sin(angle) * speed,
-        color, 2 + Math.random() * 2, 0.35 + Math.random() * 0.2
-      ));
-    }
-  }
-
   function layoutTownObjects() {
     // Fixed diamond of tower spots around the core, forge just off to one side.
-    const d = 180; // distance from core center to each tower spot
+    const spotDistance = 180; // distance from core center to each tower spot
     towerSpots = [
-      new TowerSpot(worldCenter.x, worldCenter.y - d),       // top
-      new TowerSpot(worldCenter.x + d, worldCenter.y),       // right
-      new TowerSpot(worldCenter.x, worldCenter.y + d),       // bottom
-      new TowerSpot(worldCenter.x - d, worldCenter.y),       // left
+      new TowerSpot(worldCenter.x, worldCenter.y - spotDistance),       // top
+      new TowerSpot(worldCenter.x + spotDistance, worldCenter.y),       // right
+      new TowerSpot(worldCenter.x, worldCenter.y + spotDistance),       // bottom
+      new TowerSpot(worldCenter.x - spotDistance, worldCenter.y),       // left
     ];
-    forge = new Forge(worldCenter.x - d * 0.55, worldCenter.y - d * 0.55);
+    forge = new Forge(worldCenter.x - spotDistance * 0.55, worldCenter.y - spotDistance * 0.55);
   }
 
   function resetGame() {
@@ -85,7 +72,7 @@
       player.x, player.y,
       cx - player.x, cy - player.y,
       CONFIG.PLAYER.PROJECTILE_SPEED, player.damage,
-      CONFIG.PLAYER.PROJECTILE_TTL, CONFIG.PLAYER.PROJECTILE_RADIUS, 'player'
+      CONFIG.PLAYER.PROJECTILE_TTL, CONFIG.PLAYER.PROJECTILE_RADIUS
     ));
     player.timeSinceLastShot = 0;
   }
@@ -115,43 +102,17 @@
     for (const e of enemies) { e.x += dx; e.y += dy; }
   });
 
-  // --- Difficulty ramp -------------------------------------------------------
-  function progress(t) {
-    return Math.min(t / CONFIG.SESSION_DURATION, 1);
-  }
-
-  function currentSpawnInterval(t) {
-    const p = progress(t);
-    return CONFIG.SPAWN.START_INTERVAL - p * (CONFIG.SPAWN.START_INTERVAL - CONFIG.SPAWN.MIN_INTERVAL);
-  }
-
-  function pickEnemyType(t) {
-    const p = progress(t);
-    const bruteChance = CONFIG.DIFFICULTY.BRUTE_CHANCE_START +
-      p * (CONFIG.DIFFICULTY.BRUTE_CHANCE_END - CONFIG.DIFFICULTY.BRUTE_CHANCE_START);
-    return Math.random() < bruteChance ? 'brute' : 'runner';
-  }
-
-  function scaledStats(base, t) {
-    const p = progress(t);
-    const mult = 1 + CONFIG.DIFFICULTY.STAT_MULT_END * p;
-    return {
-      hp: base.hp * mult,
-      damage: base.damage * mult,
-      speed: base.speed,
-      radius: base.radius,
-      goldValue: base.goldValue,
-      color: base.color,
-    };
-  }
-
+  // --- Enemy spawning -------------------------------------------------------
+  // The actual difficulty math (spawn rate, type mix, stat scaling over the
+  // session) lives in difficulty.js (Difficulty) — pure functions of elapsed
+  // time, so they can be tested without a running game.
   function spawnEnemy() {
     const angle = Math.random() * Math.PI * 2;
     const spawnRadius = Math.max(canvas.width, canvas.height) / 2 + CONFIG.SPAWN.MARGIN;
     const x = worldCenter.x + Math.cos(angle) * spawnRadius;
     const y = worldCenter.y + Math.sin(angle) * spawnRadius;
-    const type = pickEnemyType(gameState.elapsed);
-    const stats = scaledStats(CONFIG.ENEMY_TYPES[type], gameState.elapsed);
+    const type = Difficulty.pickEnemyType(gameState.elapsed);
+    const stats = Difficulty.scaledStats(CONFIG.ENEMY_TYPES[type], gameState.elapsed);
     enemies.push(new Enemy(x, y, type, stats));
   }
 
@@ -172,7 +133,7 @@
     spawnTimer -= dt;
     if (spawnTimer <= 0) {
       spawnEnemy();
-      spawnTimer = currentSpawnInterval(gameState.elapsed);
+      spawnTimer = Difficulty.spawnInterval(gameState.elapsed);
     }
 
     // Enemies
@@ -195,14 +156,13 @@
       if (p._dead) continue;
       for (const e of enemies) {
         if (e._dead) continue;
-        const rangeSum = p.radius + e.radius;
-        if (dist2(p.x, p.y, e.x, e.y) <= rangeSum * rangeSum) {
+        if (circlesOverlap(p.x, p.y, p.radius, e.x, e.y, e.radius)) {
           e.hp -= p.damage;
           e.hitFlashTimer = 0.08;
           p._dead = true;
           if (e.hp <= 0) {
             e._dead = true;
-            spawnBurst(e.x, e.y, e.color, 8);
+            spawnParticleBurst(particles, e.x, e.y, e.color, 8);
             goldPickups.push(new GoldPickup(e.x, e.y, e.goldValue));
           }
           break;
@@ -212,8 +172,7 @@
 
     // Gold auto-collection
     for (const g of goldPickups) {
-      const rangeSum = player.radius + g.radius + CONFIG.PICKUP_RANGE;
-      if (dist2(player.x, player.y, g.x, g.y) <= rangeSum * rangeSum) {
+      if (circlesOverlap(player.x, player.y, player.radius + CONFIG.PICKUP_RANGE, g.x, g.y, g.radius)) {
         gameState.gold += g.value;
         g._dead = true;
       }
