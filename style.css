@@ -51,6 +51,11 @@ html, body {
   color: #f5c542;
 }
 
+#hud-frozen {
+  display: none;
+  color: #5dd9f7;
+}
+
 #hint {
   position: fixed;
   bottom: 24px;

@@ -8,8 +8,14 @@ const Input = (function () {
 
   // Attaches listeners to `canvas`. `onLeftClick(cx, cy)` is called with
   // canvas-local coordinates whenever the player left-clicks the canvas.
-  function init(canvas, { onLeftClick }) {
-    window.addEventListener('keydown', (e) => { keys[e.code] = true; });
+  // `onKeyDown(code)` is called once per keydown with `e.code` (e.g.
+  // 'KeyF') — for one-shot discrete actions, as opposed to `keys`/`moveAxis`
+  // below which report held-down state.
+  function init(canvas, { onLeftClick, onKeyDown }) {
+    window.addEventListener('keydown', (e) => {
+      keys[e.code] = true;
+      if (onKeyDown) onKeyDown(e.code);
+    });
     window.addEventListener('keyup', (e) => { keys[e.code] = false; });
 
     canvas.addEventListener('mousemove', (e) => {
