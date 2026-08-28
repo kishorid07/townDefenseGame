@@ -78,44 +78,47 @@ const Renderer = (function () {
     ctx.fillRect(0, 0, canvas.width, canvas.height);
   }
 
+  // Shared shape behind every clickable world object: a ground shadow, its
+  // sprite (optionally tinted), a green/gray affordability ring when it's
+  // still interactable (cost !== null), and a label below it. `cost` and
+  // `label` are computed per-caller since each object's rules differ, but
+  // the draw sequence and the "am I affordable" logic are identical.
+  function drawInteractable(ctx, x, y, radius, sprite, tint, gold, cost, label) {
+    drawGroundShadow(ctx, x, y, radius);
+    drawSprite(ctx, sprite, x, y, radius, tint);
+    const ok = affordable(gold, cost);
+    if (cost !== null) drawRing(ctx, x, y, radius, ok);
+    drawLabel(ctx, x, y - radius - 12, label, ok || cost === null);
+  }
+
   function drawTownCore(ctx, core, gold) {
-    drawGroundShadow(ctx, core.x, core.y, core.radius);
     const tint = { color: '#ffffff', amount: core.hitFlashTimer > 0 ? core.hitFlashTimer / 0.15 : 0 };
-    drawSprite(ctx, Sprites.core, core.x, core.y, core.radius, tint);
-    const ok = core.canRepair && affordable(gold, CONFIG.CORE.REPAIR_COST);
-    if (core.canRepair) drawRing(ctx, core.x, core.y, core.radius, ok);
+    // Repair has a fixed cost but is only "on offer" while damaged, so treat
+    // a full core the same as "maxed out" (cost null) for ring/label purposes.
+    const cost = core.canRepair ? CONFIG.CORE.REPAIR_COST : null;
     const label = core.canRepair
       ? `Repair: ${CONFIG.CORE.REPAIR_COST}g (+${CONFIG.CORE.REPAIR_AMOUNT}hp)`
       : `Core HP full`;
-    drawLabel(ctx, core.x, core.y - core.radius - 12, label, ok || !core.canRepair);
+    drawInteractable(ctx, core.x, core.y, core.radius, Sprites.core, tint, gold, cost, label);
   }
 
   function drawForge(ctx, forge, gold) {
-    drawGroundShadow(ctx, forge.x, forge.y, forge.radius);
-    drawSprite(ctx, Sprites.forge, forge.x, forge.y, forge.radius);
     const cost = forge.cost;
-    const ok = affordable(gold, cost);
-    if (cost !== null) drawRing(ctx, forge.x, forge.y, forge.radius, ok);
     const label = cost !== null
       ? `Weapon Lv.${forge.level} Upgrade: ${cost}g`
       : `Weapon Lv.${forge.level} MAX`;
-    drawLabel(ctx, forge.x, forge.y - forge.radius - 12, label, ok || cost === null);
+    drawInteractable(ctx, forge.x, forge.y, forge.radius, Sprites.forge, null, gold, cost, label);
   }
 
   function drawTowerSpots(ctx, towerSpots, gold) {
     for (const spot of towerSpots) {
-      drawGroundShadow(ctx, spot.x, spot.y, spot.radius);
       const sprite = spot.isBuilt ? Sprites.tower[spot.level - 1] : Sprites.emptySpot;
-      drawSprite(ctx, sprite, spot.x, spot.y, spot.radius);
-
       const cost = spot.cost;
-      const ok = affordable(gold, cost);
-      if (cost !== null) drawRing(ctx, spot.x, spot.y, spot.radius, ok);
       let label;
       if (spot.level === 0) label = `Build: ${cost}g`;
       else if (spot.isMax) label = `Lv.${spot.level} MAX`;
       else label = `Lv.${spot.level} Upgrade: ${cost}g`;
-      drawLabel(ctx, spot.x, spot.y - spot.radius - 12, label, ok || spot.isMax);
+      drawInteractable(ctx, spot.x, spot.y, spot.radius, sprite, null, gold, cost, label);
     }
   }
 
