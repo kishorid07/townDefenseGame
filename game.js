@@ -124,81 +124,82 @@
   }
 
   // --- Update ---------------------------------------------------------------
-  function update(dt) {
-    // Freezing (F/R) stops the session clock, enemies, towers, and
-    // projectiles, but the player can still move around and collect gold
-    // and interact with tower spots/forge/core — see below.
-    if (!gameState.frozen) gameState.elapsed += dt;
-    player.timeSinceLastShot += dt;
+  // Each phase below is a focused, single-purpose step of one frame's tick,
+  // called from update() in a fixed order. Splitting them out keeps update()
+  // itself a short table of contents rather than one long function.
 
-    // Player movement
+  function updateClock(dt) {
+    gameState.elapsed += dt;
+  }
+
+  function updatePlayer(dt) {
+    player.timeSinceLastShot += dt;
     const axis = Input.moveAxis();
     if (axis.x !== 0 || axis.y !== 0) {
       const dir = normalize(axis.x, axis.y);
       player.x += dir.x * player.speed * dt;
       player.y += dir.y * player.speed * dt;
     }
+  }
 
-    if (!gameState.frozen) {
-      // Spawning
-      spawnTimer -= dt;
-      if (spawnTimer <= 0) {
-        spawnEnemy();
-        spawnTimer = Difficulty.spawnInterval(gameState.elapsed);
-      }
-
-      // Enemies
-      for (const e of enemies) e.update(dt, townCore);
-
-      // Towers
-      for (const spot of towerSpots) spot.update(dt, enemies, projectiles);
-
-      // Projectiles
-      for (const p of projectiles) p.update(dt);
+  function updateSpawning(dt) {
+    spawnTimer -= dt;
+    if (spawnTimer <= 0) {
+      spawnEnemy();
+      spawnTimer = Difficulty.spawnInterval(gameState.elapsed);
     }
+  }
 
-    // Particles (VFX only, no gameplay effect)
+  function updateWorldEntities(dt) {
+    for (const e of enemies) e.update(dt, townCore);
+    for (const spot of towerSpots) spot.update(dt, enemies, projectiles);
+    for (const p of projectiles) p.update(dt);
+  }
+
+  // Particles are pure VFX (no gameplay effect) and the core's hit-flash is
+  // a cosmetic decay timer — both run every frame regardless of freeze.
+  function updateVfx(dt) {
     for (const particle of particles) particle.update(dt);
-
-    // Core hit-flash decay
     if (townCore.hitFlashTimer > 0) townCore.hitFlashTimer = Math.max(0, townCore.hitFlashTimer - dt);
+  }
 
-    if (!gameState.frozen) {
-      // Projectile vs enemy collisions
-      for (const p of projectiles) {
-        if (p._dead) continue;
-        for (const e of enemies) {
-          if (e._dead) continue;
-          if (circlesOverlap(p.x, p.y, p.radius, e.x, e.y, e.radius)) {
-            e.hp -= p.damage;
-            e.hitFlashTimer = 0.08;
-            p._dead = true;
-            if (e.hp <= 0) {
-              e._dead = true;
-              spawnParticleBurst(particles, e.x, e.y, e.color, 8);
-              goldPickups.push(new GoldPickup(e.x, e.y, e.goldValue));
-            }
-            break;
+  function handleProjectileCollisions() {
+    for (const p of projectiles) {
+      if (p._dead) continue;
+      for (const e of enemies) {
+        if (e._dead) continue;
+        if (circlesOverlap(p.x, p.y, p.radius, e.x, e.y, e.radius)) {
+          e.hp -= p.damage;
+          e.hitFlashTimer = 0.08;
+          p._dead = true;
+          if (e.hp <= 0) {
+            e._dead = true;
+            spawnParticleBurst(particles, e.x, e.y, e.color, 8);
+            goldPickups.push(new GoldPickup(e.x, e.y, e.goldValue));
           }
+          break;
         }
       }
     }
+  }
 
-    // Gold auto-collection
+  function collectGold() {
     for (const g of goldPickups) {
       if (circlesOverlap(player.x, player.y, player.radius + CONFIG.PICKUP_RANGE, g.x, g.y, g.radius)) {
         gameState.gold += g.value;
         g._dead = true;
       }
     }
+  }
 
-    // Cleanup dead/expired entities
+  function cleanupDeadEntities() {
     enemies = enemies.filter((e) => !e._dead && e.hp > 0);
     projectiles = projectiles.filter((p) => !p._dead && p.ttl > 0);
     goldPickups = goldPickups.filter((g) => !g._dead);
     particles = particles.filter((particle) => particle.life > 0);
+  }
 
-    // Win/lose check
+  function checkWinLose() {
     if (townCore.hp <= 0) {
       gameState.phase = 'lost';
       gameState.paused = true;
@@ -208,6 +209,23 @@
       gameState.paused = true;
       showOverlay(true);
     }
+  }
+
+  // Freezing (F/R) stops the session clock, enemies, towers, projectiles,
+  // and their collisions, but the player can still move around, collect
+  // gold, and interact with tower spots/forge/core (see onKeyDown above).
+  function update(dt) {
+    if (!gameState.frozen) updateClock(dt);
+    updatePlayer(dt);
+    if (!gameState.frozen) {
+      updateSpawning(dt);
+      updateWorldEntities(dt);
+    }
+    updateVfx(dt);
+    if (!gameState.frozen) handleProjectileCollisions();
+    collectGold();
+    cleanupDeadEntities();
+    checkWinLose();
   }
 
   // --- Rendering ---------------------------------------------------------------
