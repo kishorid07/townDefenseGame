@@ -7,6 +7,7 @@
   const hudHp = document.getElementById('hud-hp');
   const hudTimer = document.getElementById('hud-timer');
   const hudWeapon = document.getElementById('hud-weapon');
+  const hudFrozen = document.getElementById('hud-frozen');
   const overlayEl = document.getElementById('overlay');
   const hintEl = document.getElementById('hint');
 
@@ -41,6 +42,7 @@
       elapsed: 0,
       gold: CONFIG.START_GOLD,
       paused: false,
+      frozen: false, // player-toggled (F/R); pauses enemies/spawning/clock, not player/economy
     };
     player = new Player(worldCenter.x, worldCenter.y);
     townCore = new TownCore(worldCenter.x, worldCenter.y);
@@ -83,9 +85,14 @@
       const worldObject = findClickedWorldObject(cx, cy);
       if (worldObject) {
         worldObject.tryInteract({ gameState, player });
-      } else {
+      } else if (!gameState.frozen) {
         fireProjectile(cx, cy);
       }
+    },
+    onKeyDown(code) {
+      if (gameState.phase !== 'playing') return; // inert after win/lose
+      if (code === 'KeyF') gameState.frozen = true;
+      else if (code === 'KeyR') gameState.frozen = false;
     },
   });
 
@@ -118,7 +125,10 @@
 
   // --- Update ---------------------------------------------------------------
   function update(dt) {
-    gameState.elapsed += dt;
+    // Freezing (F/R) stops the session clock, enemies, towers, and
+    // projectiles, but the player can still move around and collect gold
+    // and interact with tower spots/forge/core — see below.
+    if (!gameState.frozen) gameState.elapsed += dt;
     player.timeSinceLastShot += dt;
 
     // Player movement
@@ -129,21 +139,23 @@
       player.y += dir.y * player.speed * dt;
     }
 
-    // Spawning
-    spawnTimer -= dt;
-    if (spawnTimer <= 0) {
-      spawnEnemy();
-      spawnTimer = Difficulty.spawnInterval(gameState.elapsed);
+    if (!gameState.frozen) {
+      // Spawning
+      spawnTimer -= dt;
+      if (spawnTimer <= 0) {
+        spawnEnemy();
+        spawnTimer = Difficulty.spawnInterval(gameState.elapsed);
+      }
+
+      // Enemies
+      for (const e of enemies) e.update(dt, townCore);
+
+      // Towers
+      for (const spot of towerSpots) spot.update(dt, enemies, projectiles);
+
+      // Projectiles
+      for (const p of projectiles) p.update(dt);
     }
-
-    // Enemies
-    for (const e of enemies) e.update(dt, townCore);
-
-    // Towers
-    for (const spot of towerSpots) spot.update(dt, enemies, projectiles);
-
-    // Projectiles
-    for (const p of projectiles) p.update(dt);
 
     // Particles (VFX only, no gameplay effect)
     for (const particle of particles) particle.update(dt);
@@ -151,21 +163,23 @@
     // Core hit-flash decay
     if (townCore.hitFlashTimer > 0) townCore.hitFlashTimer = Math.max(0, townCore.hitFlashTimer - dt);
 
-    // Projectile vs enemy collisions
-    for (const p of projectiles) {
-      if (p._dead) continue;
-      for (const e of enemies) {
-        if (e._dead) continue;
-        if (circlesOverlap(p.x, p.y, p.radius, e.x, e.y, e.radius)) {
-          e.hp -= p.damage;
-          e.hitFlashTimer = 0.08;
-          p._dead = true;
-          if (e.hp <= 0) {
-            e._dead = true;
-            spawnParticleBurst(particles, e.x, e.y, e.color, 8);
-            goldPickups.push(new GoldPickup(e.x, e.y, e.goldValue));
+    if (!gameState.frozen) {
+      // Projectile vs enemy collisions
+      for (const p of projectiles) {
+        if (p._dead) continue;
+        for (const e of enemies) {
+          if (e._dead) continue;
+          if (circlesOverlap(p.x, p.y, p.radius, e.x, e.y, e.radius)) {
+            e.hp -= p.damage;
+            e.hitFlashTimer = 0.08;
+            p._dead = true;
+            if (e.hp <= 0) {
+              e._dead = true;
+              spawnParticleBurst(particles, e.x, e.y, e.color, 8);
+              goldPickups.push(new GoldPickup(e.x, e.y, e.goldValue));
+            }
+            break;
           }
-          break;
         }
       }
     }
@@ -214,6 +228,7 @@
     const ss = String(Math.floor(remaining % 60)).padStart(2, '0');
     hudTimer.textContent = `${mm}:${ss}`;
     hudWeapon.textContent = `Weapon Lv.${player.weaponLevel}`;
+    hudFrozen.style.display = gameState.frozen ? 'block' : 'none';
   }
 
   function showOverlay(won) {
