@@ -41,7 +41,7 @@
       phase: 'playing', // 'playing' | 'won' | 'lost'
       elapsed: 0,
       gold: CONFIG.START_GOLD,
-      paused: false,
+      ended: false, // true once phase is 'won'/'lost'; stops the update loop entirely
       frozen: false, // player-toggled (F/R); pauses enemies/spawning/clock, not player/economy
     };
     player = new Player(worldCenter.x, worldCenter.y);
@@ -202,11 +202,11 @@
   function checkWinLose() {
     if (townCore.hp <= 0) {
       gameState.phase = 'lost';
-      gameState.paused = true;
+      gameState.ended = true;
       showOverlay(false);
     } else if (gameState.elapsed >= CONFIG.SESSION_DURATION) {
       gameState.phase = 'won';
-      gameState.paused = true;
+      gameState.ended = true;
       showOverlay(true);
     }
   }
@@ -275,7 +275,7 @@
   function loop(timestamp) {
     const dt = Math.min((timestamp - lastTime) / 1000, 0.05);
     lastTime = timestamp;
-    if (!gameState.paused) update(dt);
+    if (!gameState.ended) update(dt);
     render();
     requestAnimationFrame(loop);
   }
